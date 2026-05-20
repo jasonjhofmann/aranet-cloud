@@ -264,13 +264,13 @@ src/aranet_cloud/
 
 1. **Async-first.** Single `AranetCloudClient(api_key, *, session=None, base_url=None, timeout=30)` — pass-in session for HA's shared session injection, or auto-create. Async context manager (`async with client:`).
 2. **One method per endpoint**, named after the path: `get_sensors()`, `get_sensor(sensor_id)`, `get_measurements_last(*, sensor=None, ...)`, `iter_measurements_history(...)` (async iterator that follows `next`).
-3. **Typed everything.** Pydantic or pure dataclasses + `from __future__ import annotations`. PEP 561 `py.typed` ships.
+3. **Typed everything.** Pure stdlib dataclasses with explicit `from_dict` classmethods (Pydantic was considered and rejected — adds a heavyweight runtime dependency for no functional gain at this scale). `from __future__ import annotations` throughout. PEP 561 `py.typed` ships.
 4. **No HA dependency.** Pure Python + `aiohttp`. Lib is reusable in non-HA scripts (CLI utilities, Savant ingestion, dashboards).
-5. **Graceful unknown-field handling.** When Aranet adds new fields server-side, the lib must NOT crash — `extra="ignore"` on Pydantic / strict_extras off on dataclasses. The integration may want to surface unknown fields as diagnostics.
+5. **Graceful unknown-field handling.** When Aranet adds new fields server-side, the lib must NOT crash — every `from_dict` ignores unknown keys. The integration may want to surface unknown fields as diagnostics.
 6. **Logging.** `logging.getLogger("aranet_cloud")` for the lib; HA's `_LOGGER = logging.getLogger(__name__)` in the integration. Lib logs at DEBUG for every request (method, path, status, elapsed) and at WARNING for retried/failed requests. **Never log the API key.**
 7. **Retry policy.** On 5xx / `aiohttp.ClientError` / `asyncio.TimeoutError`: exponential backoff (1s, 2s, 4s, 8s), max 3 retries. On 401: raise immediately. On 400: raise immediately. On 429 (if it ever appears): honour `Retry-After` if present; else cap-aware exponential.
 8. **Pagination.** `iter_measurements_history()` and `iter_telemetry_history()` are async generators yielding `Reading` objects one by one. The user never has to think about `next` tokens.
-9. **Catalog caching helper.** `AranetCatalog(client)` — class that fetches metrics + units + sensor types ONCE on first use and serves them from memory thereafter. The HA integration injects this into the coordinator.
+9. **Catalog caching helper.** *(Reserved for a later version; not in v0.1.0.)* The HA integration currently re-fetches the small catalog endpoints alongside measurements on every coordinator cycle — they're cheap and the simplicity outweighs the optimisation.
 
 ### Method surface (sketch)
 
