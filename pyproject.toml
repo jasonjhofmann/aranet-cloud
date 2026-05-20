@@ -1,0 +1,79 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aranet-cloud"
+version = "0.1.0"
+description = "Async Python client for the Aranet Cloud REST API"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [{ name = "Jason Hofmann", email = "jason@jasonhofmann.com" }]
+requires-python = ">=3.11"
+keywords = ["aranet", "iot", "sensors", "co2", "soil", "home-assistant"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Home Automation",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "aiohttp>=3.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "aioresponses>=0.7.6",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/jasonjhofmann/aranet-cloud"
+Repository = "https://github.com/jasonjhofmann/aranet-cloud"
+Issues = "https://github.com/jasonjhofmann/aranet-cloud/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aranet_cloud"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle + pyflakes
+    "I",             # isort
+    "UP",            # pyupgrade
+    "B",             # bugbear
+    "SIM",           # simplify
+    "TCH",           # type-checking-only imports
+    "RUF",           # ruff-specific
+]
+ignore = [
+    "E501",          # line length handled by formatter
+    "RUF002",        # we use × (multiplication sign) deliberately in "sensor × metric" prose
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B018"]   # allow expression-only statements in tests
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+disallow_untyped_decorators = false   # aioresponses decorators
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
