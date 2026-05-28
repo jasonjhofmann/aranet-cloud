@@ -2,7 +2,7 @@
 
 [![python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![license](https://img.shields.io/badge/license-Apache_2.0-green.svg)](LICENSE)
-![version](https://img.shields.io/badge/version-0.1.0-blue.svg)
+[![release](https://img.shields.io/github/v/release/jasonjhofmann/aranet-cloud?label=release&color=blue)](https://github.com/jasonjhofmann/aranet-cloud/releases) [![pypi](https://img.shields.io/pypi/v/aranet-cloud?label=PyPI&color=blue)](https://pypi.org/project/aranet-cloud/)
 
 Async Python client for the [Aranet Cloud](https://aranet.cloud/) REST API.
 
