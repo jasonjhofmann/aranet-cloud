@@ -15,6 +15,9 @@ Design notes:
 * Datetimes are parsed to ``datetime.datetime`` (timezone-aware, UTC).
 * Empty/missing nested arrays default to empty lists, not ``None`` —
   callers can iterate without checking.
+* Numeric *measurement* values (``Reading.value``, ``Alarm.value``/``worst``)
+  are ``float | None`` — ``null`` or unparseable input becomes ``None`` so
+  missing data can never masquerade as a real ``0.0``.
 """
 
 from __future__ import annotations
@@ -52,11 +55,20 @@ def _as_str(value: Any) -> str:
     return "" if value is None else str(value)
 
 
-def _as_float(value: Any) -> float:
-    """Coerce to ``float``, treating ``None`` as ``0.0``."""
+def _as_float_or_none(value: Any) -> float | None:
+    """Coerce to ``float``; ``None`` and unparseable values yield ``None``.
+
+    Used for measurement-style fields where missing data must NOT
+    masquerade as a genuine ``0.0`` (a null CO₂ reading is "no data",
+    not 0 ppm). Unparseable garbage is treated the same as null rather
+    than raising outside the ``AranetError`` hierarchy.
+    """
     if value is None:
-        return 0.0
-    return float(value)
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _as_int(value: Any) -> int:
@@ -327,15 +339,18 @@ class Reading:
     """A single measurement or telemetry datapoint.
 
     API fields: ``sensor`` (sensor ID), ``metric`` (metric ID), ``unit``
-    (unit ID), ``value`` (numeric), ``time`` (ISO 8601 timestamp),
+    (unit ID), ``value`` (numeric or null), ``time`` (ISO 8601 timestamp),
     ``novelty`` (``"new"`` or absent on historical), ``probe`` (probe index
     if multi-probe), ``asset`` / ``point`` (link refs).
+
+    ``value`` is ``None`` when the API reports ``null`` (or something
+    unparseable) — never silently coerced to ``0.0``.
     """
 
     sensor: str
     metric: str
     unit: str
-    value: float
+    value: float | None
     time: datetime | None
     novelty: str = ""
     probe: int = 0
@@ -350,7 +365,7 @@ class Reading:
             sensor=_as_str(d.get("sensor")),
             metric=_as_str(d.get("metric")),
             unit=_as_str(d.get("unit")),
-            value=_as_float(d.get("value")),
+            value=_as_float_or_none(d.get("value")),
             time=_parse_dt(d.get("time")),
             novelty=_as_str(d.get("novelty")),
             probe=_as_int(d.get("probe")),
@@ -421,6 +436,9 @@ class Alarm:
     ``severity`` (int), ``threshold``, ``value``, ``worst`` (numeric peak
     during the alarm), ``alarmed`` (when fired), ``resolved`` (when cleared,
     or null if still active), ``note``.
+
+    Like :class:`Reading`, ``value`` and ``worst`` are ``None`` when the
+    API reports ``null``/unparseable data (not coerced to ``0.0``).
     """
 
     id: str
@@ -430,8 +448,8 @@ class Alarm:
     rule: str
     severity: int
     threshold: str
-    value: float
-    worst: float
+    value: float | None
+    worst: float | None
     alarmed_at: datetime | None
     resolved_at: datetime | None
     note: str = ""
@@ -451,8 +469,8 @@ class Alarm:
             rule=_as_str(d.get("rule")),
             severity=_as_int(d.get("severity")),
             threshold=_as_str(d.get("threshold")),
-            value=_as_float(d.get("value")),
-            worst=_as_float(d.get("worst")),
+            value=_as_float_or_none(d.get("value")),
+            worst=_as_float_or_none(d.get("worst")),
             alarmed_at=_parse_dt(d.get("alarmed")),
             resolved_at=_parse_dt(d.get("resolved")),
             note=_as_str(d.get("note")),

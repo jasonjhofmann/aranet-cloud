@@ -20,6 +20,7 @@ from aioresponses import aioresponses
 from aranet_cloud import (
     AranetAuthError,
     AranetCloudClient,
+    AranetError,
     AranetServerError,
     AranetValidationError,
 )
@@ -216,3 +217,76 @@ async def test_injected_session_not_closed_by_client(api_key, sensors_payload):
 async def test_empty_api_key_rejected():
     with pytest.raises(ValueError, match="api_key must be non-empty"):
         AranetCloudClient(api_key="")
+
+
+async def test_injected_session_request_carries_timeout(api_key, sensors_payload):
+    """The configured timeout must apply per-request even with an injected
+    session (regression: it was only set on transport-owned sessions, so HA
+    deployments silently ran with aiohttp's 300 s default)."""
+    import aiohttp
+
+    session = aiohttp.ClientSession()
+    try:
+        with aioresponses() as m:
+            m.get("https://aranet.cloud/api/v1/sensors", payload=sensors_payload)
+            client = AranetCloudClient(api_key=api_key, session=session, timeout=12.5)
+            await client.get_sensors()
+        call = next(iter(m.requests.values()))[0]
+        assert call.kwargs["timeout"] == aiohttp.ClientTimeout(total=12.5)
+    finally:
+        await session.close()
+
+
+# ---------------------------------------------------------------------------
+# pagination origin pinning
+# ---------------------------------------------------------------------------
+
+
+async def test_next_url_foreign_host_rejected(api_key):
+    """A `next` link pointing at a different host must NOT be followed —
+    every request carries the ApiKey header."""
+    page1 = {
+        "readings": [
+            {"sensor": "1", "metric": "1", "unit": "1", "value": 22.0, "time": "2026-05-19T00:00:00Z"},
+        ],
+        "next": "https://evil.example.com/api/v1/measurements/history?next=tok",
+    }
+    with aioresponses() as m:
+        m.get(re.compile(r"https://aranet\.cloud/api/v1/measurements/history.*"), payload=page1)
+        async with AranetCloudClient(api_key=api_key) as client:
+            with pytest.raises(AranetError, match="foreign origin"):
+                _ = [r async for r in client.iter_measurements_history(hours=1)]
+
+
+async def test_next_url_http_downgrade_rejected(api_key):
+    """Same host but plain http:// is a downgrade — also refused."""
+    page1 = {
+        "readings": [],
+        "next": "http://aranet.cloud/api/v1/measurements/history?next=tok",
+    }
+    with aioresponses() as m:
+        m.get(re.compile(r"https://aranet\.cloud/api/v1/measurements/history.*"), payload=page1)
+        async with AranetCloudClient(api_key=api_key) as client:
+            with pytest.raises(AranetError, match="foreign origin"):
+                _ = [r async for r in client.iter_measurements_history(hours=1)]
+
+
+async def test_next_url_same_origin_absolute_followed(api_key):
+    """Absolute `next` links on the configured origin still work."""
+    page1 = {
+        "readings": [
+            {"sensor": "1", "metric": "1", "unit": "1", "value": 22.0, "time": "2026-05-19T00:00:00Z"},
+        ],
+        "next": "https://aranet.cloud/api/v1/measurements/history?next=tok2",
+    }
+    page2 = {
+        "readings": [
+            {"sensor": "1", "metric": "1", "unit": "1", "value": 22.1, "time": "2026-05-19T00:05:00Z"},
+        ],
+    }
+    with aioresponses() as m:
+        m.get(re.compile(r".*/measurements/history\?(?!next=).*"), payload=page1)
+        m.get("https://aranet.cloud/api/v1/measurements/history?next=tok2", payload=page2)
+        async with AranetCloudClient(api_key=api_key) as client:
+            collected = [r async for r in client.iter_measurements_history(hours=1)]
+    assert [r.value for r in collected] == [22.0, 22.1]

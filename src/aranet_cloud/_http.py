@@ -14,6 +14,7 @@ import logging
 import time
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlsplit
 
 import aiohttp
 
@@ -30,6 +31,7 @@ from .const import (
 from .exceptions import (
     AranetAuthError,
     AranetConnectionError,
+    AranetError,
     AranetNotFoundError,
     AranetRateLimitError,
     AranetServerError,
@@ -115,7 +117,7 @@ class _Transport:
         (e.g. a ``next`` link from a paginated response). ``params`` are
         appended as URL query string; ``None``-valued entries are dropped.
         """
-        url = path if path.startswith("http") else f"{self._base_url}{path}"
+        url = self._resolve_url(path)
         clean_params = {k: v for k, v in (params or {}).items() if v is not None}
 
         text, status = await self._request_with_retry(url, params=clean_params, accept=accept)
@@ -145,7 +147,7 @@ class _Transport:
         params: Mapping[str, Any] | None = None,
     ) -> bytes:
         """GET *path* and return the raw response body (for binary attachments)."""
-        url = path if path.startswith("http") else f"{self._base_url}{path}"
+        url = self._resolve_url(path)
         clean_params = {k: v for k, v in (params or {}).items() if v is not None}
 
         session = await self._ensure_session()
@@ -154,7 +156,9 @@ class _Transport:
         last_err: Exception | None = None
         for attempt in range(self._max_retries + 1):
             try:
-                async with session.get(url, params=clean_params, headers=headers) as resp:
+                async with session.get(
+                    url, params=clean_params, headers=headers, timeout=self._timeout
+                ) as resp:
                     if resp.status == 200:
                         self._last_request_at = time.monotonic()
                         return await resp.read()
@@ -187,7 +191,9 @@ class _Transport:
         for attempt in range(self._max_retries + 1):
             await self._respect_min_interval()
             try:
-                async with session.get(url, params=params, headers=headers) as resp:
+                async with session.get(
+                    url, params=params, headers=headers, timeout=self._timeout
+                ) as resp:
                     text = await resp.text()
                     self._last_request_at = time.monotonic()
                     _LOGGER.debug(
@@ -217,6 +223,29 @@ class _Transport:
                     continue
                 raise AranetConnectionError("request timed out") from err
         raise AranetConnectionError(str(last_err) if last_err else "exhausted retries")
+
+    def _resolve_url(self, path: str) -> str:
+        """Join *path* to ``base_url``, or validate an absolute URL.
+
+        Absolute URLs (e.g. server-supplied ``next`` pagination links) are
+        only followed when their origin (scheme + host + port) matches the
+        configured ``base_url`` — every request carries the ``ApiKey``
+        header, so following an arbitrary host (or an https→http downgrade)
+        would leak credentials.
+        """
+        if not path.startswith(("http://", "https://")):
+            return f"{self._base_url}{path}"
+        base = urlsplit(self._base_url)
+        target = urlsplit(path)
+        if (target.scheme.lower(), target.netloc.lower()) != (
+            base.scheme.lower(),
+            base.netloc.lower(),
+        ):
+            raise AranetError(
+                "Refusing to follow server-supplied URL with foreign origin "
+                f"{target.scheme}://{target.netloc} (expected {base.scheme}://{base.netloc})"
+            )
+        return path
 
     def _headers(self, *, accept: str) -> dict[str, str]:
         return {
