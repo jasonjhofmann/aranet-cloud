@@ -26,7 +26,7 @@ USER_AGENT: Final = "aranet-cloud-python"
 class Endpoint:
     """Path templates for every Aranet API endpoint.
 
-    Use as ``Endpoint.SENSOR.format(sensor=4205836)`` etc. Centralised here so
+    Use as ``Endpoint.SENSOR.format(sensor=4000005)`` etc. Centralised here so
     paths can be updated in one place if Aranet ever versions the API.
     """
 

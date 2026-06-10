@@ -1,1 +1,1 @@
-{"bases":[{"id":"358151002573","name":"Aranet-75ae36","regdate":"2023-04-16T23:46:07.575689Z","firmware":"v3.3.6","product":"TDSBWPA2.012","board":"WR12","region":"NA","self":"/api/v1/bases/base/358151002573","sensors":"/api/v1/sensors?base=358151002573"}]}
+{"bases":[{"id":"358151000000001","name":"Aranet-000001","regdate":"2023-04-16T23:46:07.575689Z","firmware":"v3.3.6","product":"TDSBWPA2.012","board":"WR12","region":"NA","self":"/api/v1/bases/base/358151000000001","sensors":"/api/v1/sensors?base=358151000000001"}]}

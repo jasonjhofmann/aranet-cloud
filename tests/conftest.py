@@ -1,8 +1,13 @@
 """Shared test fixtures.
 
-Loads the sanitized sample responses captured during Phase 0 spec analysis
-(``docs/sample_*.json``) and exposes them as fixtures. These are real
-responses from the live API with no API key in them.
+Loads the synthetic sample responses (``docs/sample_*.json``) and exposes
+them as fixtures. The payloads are structurally identical to real Aranet
+Cloud API responses captured during Phase 0 spec analysis, but every
+account-specific identifier (sensor serials, cloud IDs, base-station ID,
+base name, room names) has been replaced with a fabricated equivalent.
+
+Note: pre-v0.2.0 revisions of these files contained the original captured
+identifiers; they remain in git history.
 """
 
 from __future__ import annotations
@@ -25,23 +30,23 @@ def _load(name: str) -> Mapping[str, Any]:
 
 @pytest.fixture
 def sensors_payload() -> Mapping[str, Any]:
-    """Real ``GET /api/v1/sensors`` response (13 sensors)."""
+    """Synthetic ``GET /api/v1/sensors`` response (13 sensors)."""
     return _load("sample_sensors.json")
 
 
 @pytest.fixture
 def bases_payload() -> Mapping[str, Any]:
-    """Real ``GET /api/v1/bases`` response (1 base)."""
+    """Synthetic ``GET /api/v1/bases`` response (1 base)."""
     return _load("sample_bases.json")
 
 
 @pytest.fixture
 def metrics_payload() -> Mapping[str, Any]:
-    """Real ``GET /api/v1/metrics`` response (14 metrics)."""
+    """Synthetic ``GET /api/v1/metrics`` response (14 metrics)."""
     return _load("sample_metrics.json")
 
 
 @pytest.fixture
 def measurements_last_payload() -> Mapping[str, Any]:
-    """Real ``GET /api/v1/measurements/last?sensor=4205836`` response."""
+    """Synthetic ``GET /api/v1/measurements/last?sensor=4000005`` response."""
     return _load("sample_measurements_last.json")

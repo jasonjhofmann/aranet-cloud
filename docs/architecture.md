@@ -101,7 +101,7 @@ UTC dates, `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`) OR one of `seconds`/`minutes`/
 | `asset=...` or `point=...` set | last 24 h | 6 months |
 
 **Alternate response format:** `Accept: application/senml+json` returns IETF
-SenML (RFC 8428) with sensor URNs like `aranet:4205836:co2` and base time
+SenML (RFC 8428) with sensor URNs like `aranet:4000005:co2` and base time
 `bt` (epoch seconds). Units differ from the regular JSON (`Cel` vs `°C`, `/`
 vs `ppm`, CO₂ as fraction `0.000757` vs `757`). **Lib should support both,
 default to the regular JSON; HA integration uses regular only.**
@@ -348,13 +348,13 @@ diagnostics → slow).
 
 ### Entity-id stability
 
-Use `sensor.sensorId` (the 5-char hex code like `02D0C`, NOT the numeric `id`)
+Use `sensor.sensorId` (the 5-char hex code like `A0005`, NOT the numeric `id`)
 in the HA `unique_id`. The numeric `id` is a cloud-side primary key that
 *could* change if Aranet ever re-keys; the hex `sensorId` is the device's
 permanent identity (printed on the sticker).
 
 `unique_id` shape: `aranet_cloud_{sensorId}_{metric_id}` →
-`aranet_cloud_02D0C_3` for Primary Bedroom CO₂. Stable across renames,
+`aranet_cloud_A0005_3` for Bedroom CO₂. Stable across renames,
 re-pairings, and cloud-side ID churn.
 
 ### Device hierarchy
@@ -393,7 +393,7 @@ most-recently-paired as the `via_device`.
   for back-filling historical data. Tempting to do this for users who join
   with months of cloud history. **Decision for v1:** defer; out of MVP.
 - **Attachments.** S4V1 sensors auto-attach a thumbnail (e.g.
-  `"Primary Bedroom.png"` on sensor 4205836). Could surface as an HA `image`
+  `"Bedroom.png"` on sensor 4000005). Could surface as an HA `image`
   entity. **Decision for v1:** stretch; do if cheap.
 - **Multi-account.** A user with multiple Aranet API keys (e.g. personal +
   business). HA config flow can accept multiple entries — each gets its own

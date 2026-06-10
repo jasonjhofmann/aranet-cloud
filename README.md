@@ -50,14 +50,14 @@ asyncio.run(main())
 Output against a typical home/garden account:
 
 ```
-  02D0C  Primary Bedroom               type=S4V1
-  02E2C  Kitchen                       type=S4V1
+  A0005  Bedroom               type=S4V1
+  A0001  Kitchen                       type=S4V1
   ...
 
-  4205836           Temperature: 72.5 °F
-  4205836              Humidity: 30 %
-  4205836                    CO₂: 757 ppm
-  4205836   Atmospheric Pressure: 697.9 mmHg
+  4000005           Temperature: 72.5 °F
+  4000005              Humidity: 30 %
+  4000005                    CO₂: 757 ppm
+  4000005   Atmospheric Pressure: 697.9 mmHg
   ...
 ```
 
@@ -96,7 +96,7 @@ History endpoints are paginated by the server. The library hides the
 mechanics via async iterators:
 
 ```python
-async for reading in client.iter_measurements_history(sensor="4205836", hours=24):
+async for reading in client.iter_measurements_history(sensor="4000005", hours=24):
     print(reading.time, reading.value)
 ```
 
@@ -151,7 +151,7 @@ async with AranetCloudClient(api_key="...") as client:
     # Pull 24 hours of CO₂ readings for a single sensor
     readings = [
         r async for r in client.iter_measurements_history(
-            sensor="4205836", metric="3", hours=24,
+            sensor="4000005", metric="3", hours=24,
         )
     ]
     print(f"got {len(readings)} CO₂ samples")

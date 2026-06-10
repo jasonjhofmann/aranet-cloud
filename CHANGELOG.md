@@ -6,7 +6,37 @@ versioning is [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-Reserved for changes after v0.1.0.
+## [0.2.0] — 2026-06-10
+
+Hardening release from a code audit. One **breaking** change: numeric
+measurement values are now ``float | None``.
+
+### Changed
+
+- **Breaking:** `Reading.value`, `Alarm.value`, and `Alarm.worst` are now
+  `float | None`. A `null` (or unparseable) value from the API surfaces as
+  `None` instead of being silently coerced to `0.0` — missing data can no
+  longer masquerade as a genuine zero reading (e.g. 0 ppm CO₂).
+- Sample payloads in `docs/` and the test fixtures are now fully synthetic:
+  all real sensor serials, cloud IDs, the base-station ID/name, and room
+  names have been replaced with fabricated equivalents. (The originals
+  remain in git history prior to this release.)
+
+### Fixed
+
+- The configured request `timeout` (default 30 s) is now applied to every
+  request, including when an `aiohttp.ClientSession` is injected by the
+  caller. Previously it only took effect on transport-owned sessions, so
+  Home Assistant-style deployments silently ran with aiohttp's 300 s
+  default.
+
+### Security
+
+- Server-supplied pagination `next` links are now only followed when their
+  origin (scheme + host + port) matches the configured `base_url`. An
+  absolute URL pointing at a foreign host — or an https→http downgrade —
+  raises `AranetError` instead of being requested with the `ApiKey` header
+  attached.
 
 ## [0.1.0] — 2026-05-19
 
