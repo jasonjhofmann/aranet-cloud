@@ -1,4 +1,5 @@
-"""Model parsing tests — exercise ``from_dict`` against real API responses.
+"""Model parsing tests — exercise ``from_dict`` against the synthetic
+sample responses (structurally identical to real API output).
 
 These guard the spec→model mapping. If Aranet changes a field name or
 shape, these tests catch it before users hit it.
@@ -9,6 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from aranet_cloud.models import (
+    Alarm,
     Base,
     Links,
     Metric,
@@ -25,7 +27,7 @@ def test_sensor_parses_full_sensor_list(sensors_payload):
     sensors = [Sensor.from_dict(s) for s in sensors_payload["sensors"]]
     assert len(sensors) == 13
 
-    # find Bedroom by name
+    # find the Bedroom Aranet4 by name
     pb = next(s for s in sensors if s.name == "Bedroom")
     assert pb.id == "4000005"
     assert pb.serial == "A0005"
@@ -65,7 +67,7 @@ def test_sensor_ignores_unknown_fields():
 
 
 def test_sensor_multi_probe_parses(sensors_payload):
-    """The S6V1 WET150 (Unhappy Plant 2 Soil) has multiple probes."""
+    """The S6V1 WET150 soil probe has multiple probes."""
     sensors = [Sensor.from_dict(s) for s in sensors_payload["sensors"]]
     wet150 = next(s for s in sensors if s.type == "S6V1")
     # The skill list should still parse even if probes is empty/missing.
@@ -97,6 +99,65 @@ def test_reading_handles_missing_time():
     r = Reading.from_dict({"sensor": "1", "metric": "1", "unit": "1", "value": 22.0})
     assert r.time is None
     assert r.value == 22.0
+
+
+def test_reading_null_value_is_none():
+    """A null value must surface as None, not a genuine-looking 0.0."""
+    r = Reading.from_dict(
+        {"sensor": "1", "metric": "3", "unit": "3", "value": None, "time": "2026-05-19T23:40:55Z"}
+    )
+    assert r.value is None
+
+
+def test_reading_missing_value_is_none():
+    r = Reading.from_dict({"sensor": "1", "metric": "3", "unit": "3"})
+    assert r.value is None
+
+
+def test_reading_unparseable_value_is_none():
+    """Garbage values become None instead of raising a bare ValueError."""
+    r = Reading.from_dict({"sensor": "1", "metric": "3", "unit": "3", "value": "n/a"})
+    assert r.value is None
+    r2 = Reading.from_dict({"sensor": "1", "metric": "3", "unit": "3", "value": ["odd"]})
+    assert r2.value is None
+
+
+def test_reading_zero_value_stays_zero():
+    """A real 0.0 is preserved — only null/garbage map to None."""
+    r = Reading.from_dict({"sensor": "1", "metric": "1", "unit": "1", "value": 0})
+    assert r.value == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Alarm
+# ---------------------------------------------------------------------------
+
+
+def test_alarm_null_value_and_worst_are_none():
+    """Alarm.value/worst follow the same null→None contract as Reading."""
+    a = Alarm.from_dict(
+        {
+            "id": "1",
+            "sensor": "4000005",
+            "metric": "3",
+            "unit": "3",
+            "rule": "7",
+            "severity": 2,
+            "threshold": ">1000",
+            "value": None,
+            "worst": None,
+            "alarmed": "2026-05-19T23:40:55Z",
+        }
+    )
+    assert a.value is None
+    assert a.worst is None
+    assert a.active
+
+
+def test_alarm_numeric_values_parse():
+    a = Alarm.from_dict({"id": "1", "sensor": "1", "metric": "3", "value": 1432, "worst": "1620.5"})
+    assert a.value == 1432.0
+    assert a.worst == 1620.5
 
 
 # ---------------------------------------------------------------------------
