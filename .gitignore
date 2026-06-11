@@ -13,3 +13,4 @@ htmlcov/
 .env
 *.swp
 .DS_Store
+uv.lock
