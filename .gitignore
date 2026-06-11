@@ -14,3 +14,6 @@ htmlcov/
 *.swp
 .DS_Store
 uv.lock
+
+# Claude Code local session/settings — never commit to a public repo
+.claude/
