@@ -20,7 +20,9 @@ from aioresponses import aioresponses
 from aranet_cloud import (
     AranetAuthError,
     AranetCloudClient,
+    AranetConnectionError,
     AranetError,
+    AranetRateLimitError,
     AranetServerError,
     AranetValidationError,
 )
@@ -290,3 +292,108 @@ async def test_next_url_same_origin_absolute_followed(api_key):
         async with AranetCloudClient(api_key=api_key) as client:
             collected = [r async for r in client.iter_measurements_history(hours=1)]
     assert [r.value for r in collected] == [22.0, 22.1]
+
+
+# ---------------------------------------------------------------------------
+# v0.2.1 audit-fix regressions
+# ---------------------------------------------------------------------------
+
+
+async def test_get_bytes_timeout_wrapped_as_connection_error(api_key, monkeypatch):
+    """A timeout in the binary download path must surface as
+    AranetConnectionError — never a raw TimeoutError escaping the
+    documented AranetError hierarchy."""
+    async def _noop_sleep(*_a, **_kw):
+        return None
+    monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
+
+    url = "https://aranet.cloud/api/v1/sensors/sensor/4000001/attachment/att1/file"
+    with aioresponses() as m:
+        for _ in range(2):
+            m.get(url, exception=TimeoutError())
+        async with AranetCloudClient(api_key=api_key, max_retries=1) as client:
+            with pytest.raises(AranetConnectionError, match="request timed out"):
+                await client.download_sensor_attachment("4000001", "att1")
+
+
+async def test_get_bytes_timeout_then_success_retries(api_key, monkeypatch):
+    """A transient timeout on the binary path should be retried, matching
+    the JSON path's behaviour."""
+    async def _noop_sleep(*_a, **_kw):
+        return None
+    monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
+
+    url = "https://aranet.cloud/api/v1/sensors/sensor/4000001/attachment/att1/file"
+    with aioresponses() as m:
+        m.get(url, exception=TimeoutError())
+        m.get(url, body=b"\x89PNG-bytes")
+        async with AranetCloudClient(api_key=api_key, max_retries=1) as client:
+            data = await client.download_sensor_attachment("4000001", "att1")
+    assert data == b"\x89PNG-bytes"
+
+
+async def test_get_bytes_polite_spacing_each_attempt(api_key, monkeypatch):
+    """`_respect_min_interval` must run before EVERY attempt of a binary
+    download, not just once before the retry loop."""
+    async def _noop_sleep(*_a, **_kw):
+        return None
+    monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
+
+    url = "https://aranet.cloud/api/v1/sensors/sensor/4000001/attachment/att1/file"
+    with aioresponses() as m:
+        m.get(url, status=503, body="busy")
+        m.get(url, body=b"data")
+        async with AranetCloudClient(api_key=api_key, max_retries=1) as client:
+            calls = 0
+            orig = client._transport._respect_min_interval
+
+            async def _counting():
+                nonlocal calls
+                calls += 1
+                await orig()
+
+            monkeypatch.setattr(client._transport, "_respect_min_interval", _counting)
+            data = await client.download_sensor_attachment("4000001", "att1")
+    assert data == b"data"
+    assert calls == 2
+
+
+async def test_top_level_json_array_raises_server_error(api_key):
+    """A 200 whose body is a JSON array (not an object) must raise
+    AranetServerError, not leak an AttributeError from `.get(...)`."""
+    with aioresponses() as m:
+        m.get("https://aranet.cloud/api/v1/sensors", body="[1, 2, 3]")
+        async with AranetCloudClient(api_key=api_key) as client:
+            with pytest.raises(AranetServerError, match=r"Expected JSON object.*got list"):
+                await client.get_sensors()
+
+
+async def test_rate_limit_retry_after_taken_from_header(api_key):
+    """`AranetRateLimitError.retry_after` must come from the `Retry-After`
+    header of the final 429 response, not from float()-ing the body."""
+    with aioresponses() as m:
+        m.get(
+            "https://aranet.cloud/api/v1/sensors",
+            status=429,
+            body="Too Many Requests",
+            headers={"Retry-After": "17"},
+        )
+        async with AranetCloudClient(api_key=api_key, max_retries=0) as client:
+            with pytest.raises(AranetRateLimitError) as exc_info:
+                await client.get_sensors()
+    assert exc_info.value.retry_after == 17.0
+
+
+async def test_rate_limit_without_header_retry_after_none(api_key):
+    """No `Retry-After` header → `retry_after` is None (not a garbage parse
+    of the body text)."""
+    with aioresponses() as m:
+        m.get(
+            "https://aranet.cloud/api/v1/sensors",
+            status=429,
+            body="Too Many Requests",
+        )
+        async with AranetCloudClient(api_key=api_key, max_retries=0) as client:
+            with pytest.raises(AranetRateLimitError) as exc_info:
+                await client.get_sensors()
+    assert exc_info.value.retry_after is None
