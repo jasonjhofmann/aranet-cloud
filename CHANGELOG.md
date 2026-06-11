@@ -6,6 +6,27 @@ versioning is [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-06-10
+
+Error-contract hardening from the remaining audit findings. No API changes.
+
+### Fixed
+
+- `get_bytes` (binary attachment downloads) no longer leaks a raw
+  `TimeoutError` — timeouts are now retried and, once retries are
+  exhausted, wrapped in `AranetConnectionError`, matching the JSON path
+  and the documented "all errors derive from `AranetError`" contract.
+- The polite-spacing floor (`_respect_min_interval`) now runs before
+  **every** attempt of a binary download, not just once before the retry
+  loop, so retries can no longer hammer the API back-to-back.
+- A `200` response whose body is valid JSON but not an object (e.g. a
+  top-level array or string) now raises `AranetServerError` instead of
+  surfacing later as an `AttributeError` outside the exception hierarchy.
+- `AranetRateLimitError.retry_after` is now populated from the final 429
+  response's `Retry-After` **header** (the value already honoured for
+  backoff) instead of attempting to `float()` the response body, which
+  effectively always yielded `None`.
+
 ## [0.2.0] — 2026-06-10
 
 Hardening release from a code audit. One **breaking** change: numeric
@@ -97,5 +118,7 @@ pagination, full exception hierarchy.
 - Build tooling: `ruff` (lint), `mypy --strict` (types), `pytest` +
   `pytest-asyncio` (tests), `hatchling` (wheel/sdist).
 
-[Unreleased]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jasonjhofmann/aranet-cloud/releases/tag/v0.1.0

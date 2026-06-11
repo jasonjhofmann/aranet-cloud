@@ -120,7 +120,9 @@ class _Transport:
         url = self._resolve_url(path)
         clean_params = {k: v for k, v in (params or {}).items() if v is not None}
 
-        text, status = await self._request_with_retry(url, params=clean_params, accept=accept)
+        text, status, retry_after = await self._request_with_retry(
+            url, params=clean_params, accept=accept
+        )
 
         if status == 200:
             if not text or text == "{}":
@@ -129,13 +131,22 @@ class _Transport:
                 return {}
             try:
                 import json
-                return json.loads(text)  # type: ignore[no-any-return]
+                parsed = json.loads(text)
             except ValueError as err:
                 raise AranetServerError(
                     f"Malformed JSON in 200 response: {err}", status=status
                 ) from err
+            if not isinstance(parsed, dict):
+                # The API contract is a JSON object at the top level. A bare
+                # array/string/number would crash callers (`.get(...)`) with
+                # an AttributeError outside the AranetError hierarchy.
+                raise AranetServerError(
+                    f"Expected JSON object in 200 response, got {type(parsed).__name__}",
+                    status=status,
+                )
+            return parsed
 
-        self._raise_for_status(status, text)
+        self._raise_for_status(status, text, retry_after=retry_after)
         # _raise_for_status always raises on non-200; this line is unreachable
         # but keeps mypy happy on the return type.
         raise AssertionError("unreachable")
@@ -151,28 +162,41 @@ class _Transport:
         clean_params = {k: v for k, v in (params or {}).items() if v is not None}
 
         session = await self._ensure_session()
-        await self._respect_min_interval()
         headers = self._headers(accept="*/*")
         last_err: Exception | None = None
         for attempt in range(self._max_retries + 1):
+            await self._respect_min_interval()
             try:
                 async with session.get(
                     url, params=clean_params, headers=headers, timeout=self._timeout
                 ) as resp:
                     if resp.status == 200:
+                        data = await resp.read()
                         self._last_request_at = time.monotonic()
-                        return await resp.read()
+                        return data
                     text = await resp.text()
+                    self._last_request_at = time.monotonic()
                     if resp.status in (500, 502, 503, 504) and attempt < self._max_retries:
                         await self._sleep_backoff(attempt)
                         continue
-                    self._raise_for_status(resp.status, text)
+                    self._raise_for_status(
+                        resp.status, text, retry_after=resp.headers.get("Retry-After")
+                    )
             except aiohttp.ClientError as err:
                 last_err = err
                 if attempt < self._max_retries:
                     await self._sleep_backoff(attempt)
                     continue
                 raise AranetConnectionError(str(err)) from err
+            except TimeoutError as err:
+                last_err = err
+                _LOGGER.warning(
+                    "timeout on attempt %d/%d", attempt + 1, self._max_retries + 1
+                )
+                if attempt < self._max_retries:
+                    await self._sleep_backoff(attempt)
+                    continue
+                raise AranetConnectionError("request timed out") from err
         # Defensive — shouldn't reach here.
         raise AranetConnectionError(str(last_err) if last_err else "exhausted retries")
 
@@ -184,7 +208,13 @@ class _Transport:
         *,
         params: Mapping[str, Any],
         accept: str,
-    ) -> tuple[str, int]:
+    ) -> tuple[str, int, str | None]:
+        """GET with retries; return ``(body, status, retry_after_header)``.
+
+        ``retry_after_header`` is the final response's ``Retry-After`` value
+        (or ``None``), preserved so :meth:`_raise_for_status` can attach it to
+        :class:`AranetRateLimitError` after retries are exhausted.
+        """
         session = await self._ensure_session()
         headers = self._headers(accept=accept)
         last_err: Exception | None = None
@@ -207,7 +237,7 @@ class _Transport:
                         retry_after = resp.headers.get("Retry-After")
                         await self._sleep_backoff(attempt, override=retry_after)
                         continue
-                    return text, resp.status
+                    return text, resp.status, resp.headers.get("Retry-After")
             except aiohttp.ClientError as err:
                 last_err = err
                 _LOGGER.warning("network error on attempt %d/%d: %s", attempt + 1, self._max_retries + 1, err)
@@ -279,20 +309,29 @@ class _Transport:
         _LOGGER.debug("backoff: sleeping %.2fs before retry", delay)
         await asyncio.sleep(delay)
 
-    def _raise_for_status(self, status: int, body: str) -> None:
-        """Translate a non-200 status into the appropriate exception type."""
+    def _raise_for_status(
+        self, status: int, body: str, *, retry_after: str | None = None
+    ) -> None:
+        """Translate a non-200 status into the appropriate exception type.
+
+        ``retry_after`` is the response's ``Retry-After`` header value, used
+        to populate :class:`AranetRateLimitError.retry_after` on 429.
+        """
         if status == 401:
             # Aranet returns plain text here: "Invalid ApiKey" / "Not Authorized"
             raise AranetAuthError(body.strip() or "Unauthorized")
         if status == 404:
             raise AranetNotFoundError(body.strip() or "Not found")
         if status == 429:
-            retry_after: float | None = None
-            try:
-                retry_after = float(body) if body.strip() else None
-            except ValueError:
-                retry_after = None
-            raise AranetRateLimitError(body.strip() or "Rate limited", retry_after=retry_after)
+            retry_after_s: float | None = None
+            if retry_after:
+                try:
+                    retry_after_s = float(retry_after)
+                except ValueError:
+                    retry_after_s = None
+            raise AranetRateLimitError(
+                body.strip() or "Rate limited", retry_after=retry_after_s
+            )
         if status == 400:
             # Aranet returns JSON: {"error": [{"message": "...", "id": "..."}]}
             correlation: str | None = None
