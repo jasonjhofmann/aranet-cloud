@@ -6,6 +6,17 @@ versioning is [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- Raised the `aiohttp` dependency floor from `>=3.9` to `>=3.10.11`.
+  3.10.11 fixes **CVE-2024-52304** (GHSA-8495-4g3g-x7pr): the pure-Python
+  HTTP parser parsed newlines in chunk extensions incorrectly, allowing an
+  HTTP request-smuggling attack to bypass firewall/proxy protections when
+  the C extensions are unavailable (or `AIOHTTP_NO_EXTENSIONS` is set).
+  This is a transitive hardening only — `aranet-cloud` is a client and does
+  not run the affected server parser, but pinning the floor keeps any
+  installation off the vulnerable releases.
+
 ## [0.2.1] — 2026-06-10
 
 Error-contract hardening from the remaining audit findings. No API changes.
