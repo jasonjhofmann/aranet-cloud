@@ -6,14 +6,15 @@
 
 Async Python client for the [Aranet Cloud](https://aranet.cloud/) REST API.
 
-Wraps every endpoint in the public Aranet Cloud OpenAPI 3.0 spec — 27
-read-only `GET` endpoints — and returns typed dataclass models. Designed
-primarily as the backing library for the
+Wraps the public Aranet Cloud OpenAPI 3.0 spec — 25 of its 27 read-only
+`GET` endpoints (all but the two attachment-*metadata* endpoints) — and
+returns typed dataclass models. Designed primarily as the backing library
+for the
 [`aranet-cloud-homeassistant`](https://github.com/jasonjhofmann/aranet-cloud-homeassistant)
 HACS integration, but usable as a standalone Python client.
 
-> **Status:** Pre-release (0.1.x). The OpenAPI mapping is stable; the
-> public Python surface may evolve as the HA integration drives
+> **Status:** Alpha (0.2.x). The OpenAPI mapping is stable; the public
+> Python surface may still evolve as the HA integration drives
 > requirements. Pin to a minor version in production.
 
 ## Install
@@ -73,7 +74,9 @@ AranetCloudClient(api_key="vku...")
 
 ## What's covered
 
-All 27 GET endpoints in the public OpenAPI spec:
+25 of the 27 GET endpoints in the public OpenAPI spec (all but the two
+attachment-*metadata* endpoints — the file/thumbnail downloads **are**
+wrapped):
 
 | Domain | Methods |
 |---|---|
@@ -134,8 +137,9 @@ escalations.
 - **Pagination hidden**: `iter_*_history()` async generators follow
   `next` tokens transparently.
 - **Retry/backoff** on 5xx, 429, and transient network failures.
-  Exponential backoff `(1s, 2s, 4s, 8s)` capped at 30 s; max 3 retries
-  by default.
+  Exponential backoff `1s, 2s, 4s, …` capped at 30 s; 3 retries by default
+  (so 1s, 2s, 4s). A server `Retry-After` on 429 is honoured — also clamped
+  to the 30 s cap, so a hostile/misconfigured value can't stall the caller.
 - **Polite-spacing** floor (250 ms) between successive requests. The
   Aranet API has no documented rate limit, but we don't hammer.
 - **Never logs the API key.** Debug logs cover request method, path,
@@ -166,10 +170,10 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest               # 23 tests, ~0.7s
+pytest               # 50 tests
 ruff check .         # lint
 mypy src             # type-check (strict)
-python -m build      # build wheel + sdist
+uv build             # build wheel + sdist (what CI publishes)
 ```
 
 ## License

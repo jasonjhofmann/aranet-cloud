@@ -22,6 +22,7 @@ Design notes:
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -60,22 +61,39 @@ def _as_float_or_none(value: Any) -> float | None:
 
     Used for measurement-style fields where missing data must NOT
     masquerade as a genuine ``0.0`` (a null CO₂ reading is "no data",
-    not 0 ppm). Unparseable garbage is treated the same as null rather
-    than raising outside the ``AranetError`` hierarchy.
+    not 0 ppm). Unparseable garbage — and non-finite values (``inf``/``nan``,
+    including their string forms which ``float()`` happily accepts) — are
+    treated the same as null rather than raising outside the ``AranetError``
+    hierarchy or letting a bogus non-finite reading through.
     """
     if value is None:
         return None
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return None
+    return result if math.isfinite(result) else None
 
 
 def _as_int(value: Any) -> int:
-    """Coerce to ``int``, treating ``None`` as ``0``."""
+    """Coerce to ``int``; ``None`` and unparseable values yield ``0``.
+
+    Defensive in the same spirit as :func:`_as_float_or_none`: a malformed
+    integer field from the API (a non-numeric ``probe``/``severity``/
+    ``precision``, or a float-shaped string) must NOT raise a bare
+    ``ValueError``/``TypeError`` outside the ``AranetError`` hierarchy — the
+    ``from_dict`` contract is to tolerate unexpected server data, not crash.
+    """
     if value is None:
         return 0
-    return int(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def _as_bool(value: Any) -> bool:
@@ -169,7 +187,11 @@ class Skill:
         return cls(
             metric=_as_str(d.get("metric")),
             active=_as_bool(d.get("active")),
-            probes=tuple(int(p["probe"]) for p in d.get("probes", []) or [] if "probe" in p),
+            probes=tuple(
+                _as_int(p.get("probe"))
+                for p in d.get("probes", []) or []
+                if isinstance(p, Mapping) and "probe" in p
+            ),
         )
 
 

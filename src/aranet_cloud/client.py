@@ -15,7 +15,7 @@ Example::
             for s in sensors:
                 print(s.name, s.serial)
 
-            readings = await client.get_measurements_last(sensor=[s.id for s in sensors])
+            readings, _links = await client.get_measurements_last(sensor=[s.id for s in sensors])
             for r in readings:
                 print(r.sensor, r.metric, r.value)
 
@@ -24,7 +24,7 @@ Example::
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from ._http import _Transport
@@ -65,12 +65,32 @@ def _csv(values: str | Iterable[str | int] | None) -> str | None:
 
 
 def _fmt_dt(value: str | datetime | None) -> str | None:
-    """ISO 8601 with second precision; passes through strings unchanged."""
+    """ISO 8601 with second precision; passes through strings unchanged.
+
+    The Aranet API interprets ``from``/``to`` as UTC. A timezone-aware
+    datetime is converted to UTC before formatting, so a caller passing e.g. a
+    ``US/Pacific`` time does not have its wall-clock digits silently
+    reinterpreted as UTC (a multi-hour shift). Naive datetimes are assumed to
+    already be UTC and pass through unchanged.
+    """
     if value is None:
         return None
     if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(UTC)
         return value.strftime("%Y-%m-%dT%H:%M:%S")
     return value
+
+
+def _links_param(links: bool | None) -> str | None:
+    """Map the optional ``links`` flag to the API's string query param.
+
+    ``None`` → omit the param (server default applies); ``True``/``False`` →
+    the literal ``"true"``/``"false"`` the API expects.
+    """
+    if links is None:
+        return None
+    return "true" if links else "false"
 
 
 class AranetCloudClient:
@@ -152,7 +172,7 @@ class AranetCloudClient:
         return Sensor.from_dict(data.get("sensor") or data)
 
     async def get_sensor_types(self) -> list[SensorType]:
-        """List every sensor type the cloud knows about (53+ in mid-2026)."""
+        """List every sensor type the cloud knows about (53 in mid-2026)."""
         data = await self._transport.get_json(Endpoint.SENSOR_TYPES)
         return [SensorType.from_dict(t) for t in data.get("sensorTypes", []) or []]
 
@@ -189,7 +209,7 @@ class AranetCloudClient:
             "point": _csv(point),
             "metric": _csv(metric),
             "unit": _csv(unit),
-            "links": None if links is None else ("true" if links else "false"),
+            "links": _links_param(links),
         }
         data = await self._transport.get_json(Endpoint.MEASUREMENTS_LAST, params=params)
         return (
@@ -237,7 +257,7 @@ class AranetCloudClient:
             "hours": hours,
             "days": days,
             "limit": limit,
-            "links": None if links is None else ("true" if links else "false"),
+            "links": _links_param(links),
         }
         async for reading in self._paginated_readings(Endpoint.MEASUREMENTS_HISTORY, params):
             yield reading
@@ -261,7 +281,7 @@ class AranetCloudClient:
         params = {
             "sensor": _csv(sensor),
             "metric": _csv(metric),
-            "links": None if links is None else ("true" if links else "false"),
+            "links": _links_param(links),
         }
         data = await self._transport.get_json(Endpoint.TELEMETRY_LAST, params=params)
         return (
@@ -297,7 +317,7 @@ class AranetCloudClient:
             "hours": hours,
             "days": days,
             "limit": limit,
-            "links": None if links is None else ("true" if links else "false"),
+            "links": _links_param(links),
         }
         async for reading in self._paginated_readings(Endpoint.TELEMETRY_HISTORY, params):
             yield reading
@@ -410,7 +430,10 @@ class AranetCloudClient:
 
         Args:
             sensor_id: Numeric cloud ID.
-            attachment_id: Attachment ID (from ``Sensor.files[*].href``).
+            attachment_id: The ``{attid}`` path segment of the attachment.
+                The API exposes attachments only via ``Sensor.files[*].href``
+                (a full URL), so parse the id out of that href rather than
+                expecting a standalone field.
             thumbnail: If ``True``, fetch the smaller thumbnail variant.
         """
         tmpl = Endpoint.SENSOR_ATTACHMENT_THUMB if thumbnail else Endpoint.SENSOR_ATTACHMENT_FILE
@@ -439,8 +462,8 @@ class AranetCloudClient:
         """Generator that follows ``next`` until the API stops returning one.
 
         The API documents that the last page may be empty (an optimisation
-        artifact), so we iterate until ``next`` is absent OR the readings
-        list is empty AND no ``next`` URL is supplied.
+        artifact), so emptiness alone does not stop iteration: we keep going as
+        long as a ``next`` URL is supplied and stop the first time it is absent.
         """
         url: str = endpoint
         current_params: Mapping[str, Any] | None = params

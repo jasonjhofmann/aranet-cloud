@@ -38,8 +38,8 @@ The Aranet OpenAPI spec lives at `docs/openapi.json`. If Aranet adds a
 new endpoint:
 
 1. Update `docs/openapi.json` from `https://aranet.cloud/api/openapi.json`.
-2. Re-run `python /tmp/ar_spec_analyze.py` (the script that produced
-   `docs/api_enumeration.md`) to refresh the enumeration.
+2. Refresh `docs/api_enumeration.md` — it is a flattened, human-readable
+   view of the schemas and paths in `openapi.json`; keep the two in sync.
 3. Add a path constant to `src/aranet_cloud/const.py` under `Endpoint`.
 4. Add the new response schema as a dataclass in
    `src/aranet_cloud/models.py`, with a `from_dict` classmethod that
@@ -79,17 +79,22 @@ Then add a test that exercises a payload containing the new field.
   blank line, then any further detail. Prefer concrete examples over
   abstractions.
 - Logging: `logging.getLogger("aranet_cloud")` at module level. DEBUG
-  for per-request lines, WARNING for retries, ERROR only when an
-  exception is about to propagate. Never log the API key.
+  for per-request lines, WARNING for retried/transient failures. The
+  caller owns user-facing error reporting (the lib raises typed
+  exceptions rather than logging at ERROR). Never log the API key.
 
 ## Release process
 
 1. Bump `version` in `pyproject.toml` and `src/aranet_cloud/__init__.py`.
 2. Update `CHANGELOG.md` — move "Unreleased" items into a new
-   `[X.Y.Z] — YYYY-MM-DD` section.
-3. Commit, tag `vX.Y.Z`, push.
-4. `python -m build` → `twine upload dist/aranet_cloud-X.Y.Z*` (TestPyPI
-   first, then PyPI when validated).
+   `[X.Y.Z] — YYYY-MM-DD` section and refresh the compare links at the
+   bottom.
+3. Commit, tag `vX.Y.Z`, push the commit and the tag.
+4. Publishing is automated: cutting a GitHub **Release** for the tag
+   triggers `.github/workflows/publish.yml`, which runs `uv build` and
+   uploads to PyPI via Trusted Publishing (OIDC — no stored token). For a
+   local sanity build, `uv build` produces the same wheel + sdist under
+   `dist/`.
 
 ## License
 

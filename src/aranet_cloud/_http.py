@@ -10,6 +10,7 @@ should not need to touch it directly.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections.abc import Mapping
@@ -130,7 +131,6 @@ class _Transport:
                 # no data. Treat as "empty dict" rather than a parse error.
                 return {}
             try:
-                import json
                 parsed = json.loads(text)
             except ValueError as err:
                 raise AranetServerError(
@@ -164,6 +164,10 @@ class _Transport:
         session = await self._ensure_session()
         headers = self._headers(accept="*/*")
         last_err: Exception | None = None
+        # Redirects are left enabled here (unlike the JSON path): a binary
+        # attachment may legitimately 30x to a blob/CDN URL. The JSON API
+        # endpoints never redirect, so that path refuses to (see
+        # _request_with_retry) to avoid leaking the ApiKey cross-origin.
         for attempt in range(self._max_retries + 1):
             await self._respect_min_interval()
             try:
@@ -173,17 +177,34 @@ class _Transport:
                     if resp.status == 200:
                         data = await resp.read()
                         self._last_request_at = time.monotonic()
+                        _LOGGER.debug(
+                            "GET %s params=%s → 200 (%d bytes)",
+                            url, dict(clean_params), len(data),
+                        )
                         return data
                     text = await resp.text()
                     self._last_request_at = time.monotonic()
+                    _LOGGER.debug(
+                        "GET %s params=%s → %s (%d bytes)",
+                        url, dict(clean_params), resp.status, len(text),
+                    )
                     if resp.status in (500, 502, 503, 504) and attempt < self._max_retries:
                         await self._sleep_backoff(attempt)
+                        continue
+                    if resp.status == 429 and attempt < self._max_retries:
+                        await self._sleep_backoff(
+                            attempt, override=resp.headers.get("Retry-After")
+                        )
                         continue
                     self._raise_for_status(
                         resp.status, text, retry_after=resp.headers.get("Retry-After")
                     )
             except aiohttp.ClientError as err:
                 last_err = err
+                _LOGGER.warning(
+                    "network error on attempt %d/%d: %s",
+                    attempt + 1, self._max_retries + 1, err,
+                )
                 if attempt < self._max_retries:
                     await self._sleep_backoff(attempt)
                     continue
@@ -221,8 +242,17 @@ class _Transport:
         for attempt in range(self._max_retries + 1):
             await self._respect_min_interval()
             try:
+                # allow_redirects=False: the JSON API endpoints are not
+                # documented to redirect. Following a server-supplied 30x would
+                # re-send the ApiKey header to the redirect target — possibly a
+                # foreign origin — defeating the same-origin pin in _resolve_url.
+                # A redirect here is anomalous, so surface it instead.
                 async with session.get(
-                    url, params=params, headers=headers, timeout=self._timeout
+                    url,
+                    params=params,
+                    headers=headers,
+                    timeout=self._timeout,
+                    allow_redirects=False,
                 ) as resp:
                     text = await resp.text()
                     self._last_request_at = time.monotonic()
@@ -297,15 +327,24 @@ class _Transport:
                 await asyncio.sleep(MIN_REQUEST_INTERVAL - elapsed)
 
     async def _sleep_backoff(self, attempt: int, *, override: str | None = None) -> None:
-        """Exponential backoff with cap. Override accepts a server-supplied
-        ``Retry-After`` value (seconds, as a string)."""
+        """Exponential backoff, clamped to :data:`DEFAULT_BACKOFF_CAP`.
+
+        ``override`` accepts a server-supplied ``Retry-After`` value
+        (delta-seconds, as a string). Both the exponential and the override
+        paths are clamped to the cap so a hostile or misconfigured upstream
+        cannot make the client sleep for an unbounded time inside an awaited
+        request — that would silently wedge a polling caller (e.g. an HA
+        ``DataUpdateCoordinator``). HTTP-date forms of ``Retry-After`` are not
+        parsed and fall back to the base delay.
+        """
         if override:
             try:
                 delay = float(override)
             except ValueError:
                 delay = DEFAULT_BACKOFF_BASE
         else:
-            delay = min(DEFAULT_BACKOFF_BASE * (2**attempt), DEFAULT_BACKOFF_CAP)
+            delay = DEFAULT_BACKOFF_BASE * (2**attempt)
+        delay = min(delay, DEFAULT_BACKOFF_CAP)
         _LOGGER.debug("backoff: sleeping %.2fs before retry", delay)
         await asyncio.sleep(delay)
 
@@ -337,15 +376,17 @@ class _Transport:
             correlation: str | None = None
             message = body
             try:
-                import json
-                parsed = json.loads(body) if body else {}
-                errs = parsed.get("error") if isinstance(parsed, Mapping) else None
-                if isinstance(errs, list) and errs:
-                    detail = ErrorDetail.from_dict(errs[0])
-                    message = detail.message or body
-                    correlation = detail.id or None
+                parsed: Any = json.loads(body) if body else {}
             except ValueError:
-                pass
+                parsed = {}
+            errs = parsed.get("error") if isinstance(parsed, Mapping) else None
+            # Guard every shape: errs may be absent, not a list, or contain a
+            # non-Mapping first item (a bare string) — none of which may crash
+            # the error path with an AttributeError outside AranetError.
+            if isinstance(errs, list) and errs and isinstance(errs[0], Mapping):
+                detail = ErrorDetail.from_dict(errs[0])
+                message = detail.message or body
+                correlation = detail.id or None
             raise AranetValidationError(message, correlation_id=correlation)
         if 500 <= status < 600:
             raise AranetServerError(body.strip() or f"Server error {status}", status=status)

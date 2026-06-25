@@ -397,3 +397,130 @@ async def test_rate_limit_without_header_retry_after_none(api_key):
             with pytest.raises(AranetRateLimitError) as exc_info:
                 await client.get_sensors()
     assert exc_info.value.retry_after is None
+
+
+# ---------------------------------------------------------------------------
+# v0.2.2 hardening regressions
+# ---------------------------------------------------------------------------
+
+
+def test_fmt_dt_converts_aware_datetime_to_utc():
+    """A tz-aware non-UTC datetime is converted to UTC before formatting, so
+    the API (which reads from/to as UTC) doesn't silently shift the value."""
+    from datetime import datetime, timedelta, timezone
+
+    from aranet_cloud.client import _fmt_dt
+
+    pacific = timezone(timedelta(hours=-8))
+    assert _fmt_dt(datetime(2026, 5, 19, 12, 0, 0, tzinfo=pacific)) == "2026-05-19T20:00:00"
+    # naive passes through unchanged (assumed already UTC)
+    assert _fmt_dt(datetime(2026, 5, 19, 12, 0, 0)) == "2026-05-19T12:00:00"
+    # strings pass through untouched
+    assert _fmt_dt("2026-05-19") == "2026-05-19"
+
+
+async def test_retry_after_override_is_capped(api_key, monkeypatch):
+    """A 429 with an absurd Retry-After must never make the client sleep
+    longer than DEFAULT_BACKOFF_CAP — an unbounded server-controlled await
+    would silently wedge a polling caller."""
+    from aranet_cloud.const import DEFAULT_BACKOFF_CAP
+
+    slept: list[float] = []
+
+    async def _record_sleep(delay, *_a, **_kw):
+        slept.append(delay)
+
+    monkeypatch.setattr(asyncio, "sleep", _record_sleep)
+    with aioresponses() as m:
+        for _ in range(2):
+            m.get(
+                "https://aranet.cloud/api/v1/sensors",
+                status=429,
+                body="slow down",
+                headers={"Retry-After": "86400"},
+            )
+        async with AranetCloudClient(api_key=api_key, max_retries=1) as client:
+            with pytest.raises(AranetRateLimitError):
+                await client.get_sensors()
+    assert slept, "expected at least one backoff sleep"
+    assert max(slept) <= DEFAULT_BACKOFF_CAP
+
+
+async def test_400_non_object_error_item_does_not_leak_attributeerror(api_key):
+    """A 400 whose error[] holds a bare string (not an object) must still raise
+    AranetValidationError — never an AttributeError outside the hierarchy
+    (the binary-array sibling of the case fixed in v0.2.1)."""
+    with aioresponses() as m:
+        m.get(
+            "https://aranet.cloud/api/v1/sensors",
+            status=400,
+            payload={"error": ["just a string, not an object"]},
+        )
+        async with AranetCloudClient(api_key=api_key) as client:
+            with pytest.raises(AranetValidationError) as exc_info:
+                await client.get_sensors()
+    assert exc_info.value.correlation_id is None
+
+
+async def test_get_bytes_retries_429(api_key, monkeypatch):
+    """The binary download path now retries 429, matching the JSON path."""
+    async def _noop_sleep(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
+    url = "https://aranet.cloud/api/v1/sensors/sensor/4000001/attachment/att1/file"
+    with aioresponses() as m:
+        m.get(url, status=429, body="slow down", headers={"Retry-After": "1"})
+        m.get(url, body=b"PNG-bytes")
+        async with AranetCloudClient(api_key=api_key, max_retries=1) as client:
+            data = await client.download_sensor_attachment("4000001", "att1")
+    assert data == b"PNG-bytes"
+
+
+async def test_404_raises_not_found(api_key):
+    from aranet_cloud import AranetNotFoundError
+
+    with aioresponses() as m:
+        m.get("https://aranet.cloud/api/v1/sensors/sensor/999", status=404, body="Not found")
+        async with AranetCloudClient(api_key=api_key) as client:
+            with pytest.raises(AranetNotFoundError):
+                await client.get_sensor("999")
+
+
+# ---------------------------------------------------------------------------
+# coverage for previously-untested endpoints
+# ---------------------------------------------------------------------------
+
+
+async def test_get_telemetry_last(api_key):
+    payload = {
+        "readings": [
+            {"sensor": "4000005", "metric": "61", "unit": "5", "value": -71, "time": "2026-05-19T23:40:55Z"},
+            {"sensor": "4000005", "metric": "62", "unit": "6", "value": 2.9, "time": "2026-05-19T23:40:55Z"},
+        ],
+        "links": {"metric": [{"rel": "61", "name": "RSSI", "href": "/x"}]},
+    }
+    with aioresponses() as m:
+        m.get(re.compile(r"https://aranet\.cloud/api/v1/telemetry/last.*"), payload=payload)
+        async with AranetCloudClient(api_key=api_key) as client:
+            readings, links = await client.get_telemetry_last(sensor="4000005")
+    assert {r.metric for r in readings} == {"61", "62"}
+    assert links.name("metric", "61") == "RSSI"
+
+
+async def test_get_bases_alarms_actual_and_metric(api_key, bases_payload):
+    with aioresponses() as m:
+        m.get("https://aranet.cloud/api/v1/bases", payload=bases_payload)
+        m.get("https://aranet.cloud/api/v1/alarms/actual", payload={"alarms": []})
+        m.get(
+            "https://aranet.cloud/api/v1/metrics/3",
+            payload={"metric": {"id": "3", "name": "CO₂", "kind": "g", "units": []}},
+        )
+        async with AranetCloudClient(api_key=api_key) as client:
+            bases = await client.get_bases()
+            alarms = await client.get_alarms_actual()
+            metric = await client.get_metric("3")
+    assert len(bases) == 1
+    assert alarms == []
+    assert metric.id == "3"
+    assert metric.is_gauge

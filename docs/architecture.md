@@ -20,8 +20,8 @@ findings recorded below.
   `/openapi/` is gated and returns 403 — that is not an outage, the raw spec
   is the canonical source)
 - **No documented rate limit.** 20-request burst in 12.6 s (1.6 req/sec) ran
-  through cleanly. Default lib behaviour: polite, ≥ 1 s between requests,
-  honour 429 with exponential backoff if it ever appears
+  through cleanly. Default lib behaviour: polite, ≥ 0.25 s (250 ms) between
+  requests, honour 429 with exponential backoff if it ever appears
 - **TLS:** Cloudflare-fronted, current cert (issued April 2026)
 
 ---
@@ -249,30 +249,39 @@ optionally expose these (e.g. `Reading.metric_name = links.metric[reading.metric
 src/aranet_cloud/
 ├── __init__.py            # public API surface (re-exports)
 ├── client.py              # AranetCloudClient — single async class, one method per endpoint
-├── models.py              # dataclasses for all 48 response schemas
+├── models.py              # 21 dataclasses for the response schemas
 ├── exceptions.py          # AranetError (base), AranetAuthError (401),
                            # AranetValidationError (400), AranetRateLimitError (429),
-                           # AranetServerError (5xx), AranetConnectionError
-├── enums.py               # MetricKind, SeverityLevel, etc.
-├── const.py               # BASE_URL, endpoint path templates, ApiKey header name
-├── _http.py               # aiohttp session mgmt, request hook, retry/backoff
-├── _senml.py              # optional senml+json decoder
+                           # AranetServerError (5xx), AranetConnectionError, AranetNotFoundError
+├── const.py               # BASE_URL, endpoint path templates, ApiKey header name, retry/backoff constants
+├── _http.py               # aiohttp session mgmt, retry/backoff, same-origin pin
 └── py.typed               # PEP 561 marker
 ```
 
+> Earlier drafts of this doc sketched `enums.py` and a `_senml.py`
+> senml+json decoder; neither shipped. Metric kind is a plain `str` on
+> `Metric`, and only the regular JSON response format is parsed.
+
 ### Design principles
 
-1. **Async-first.** Single `AranetCloudClient(api_key, *, session=None, base_url=None, timeout=30)` — pass-in session for HA's shared session injection, or auto-create. Async context manager (`async with client:`).
+1. **Async-first.** Single `AranetCloudClient(api_key, *, session=None, base_url="https://aranet.cloud", timeout=30)` — pass-in session for HA's shared session injection, or auto-create. Async context manager (`async with client:`).
 2. **One method per endpoint**, named after the path: `get_sensors()`, `get_sensor(sensor_id)`, `get_measurements_last(*, sensor=None, ...)`, `iter_measurements_history(...)` (async iterator that follows `next`).
 3. **Typed everything.** Pure stdlib dataclasses with explicit `from_dict` classmethods (Pydantic was considered and rejected — adds a heavyweight runtime dependency for no functional gain at this scale). `from __future__ import annotations` throughout. PEP 561 `py.typed` ships.
 4. **No HA dependency.** Pure Python + `aiohttp`. Lib is reusable in non-HA scripts (CLI utilities, Savant ingestion, dashboards).
 5. **Graceful unknown-field handling.** When Aranet adds new fields server-side, the lib must NOT crash — every `from_dict` ignores unknown keys. The integration may want to surface unknown fields as diagnostics.
-6. **Logging.** `logging.getLogger("aranet_cloud")` for the lib; HA's `_LOGGER = logging.getLogger(__name__)` in the integration. Lib logs at DEBUG for every request (method, path, status, elapsed) and at WARNING for retried/failed requests. **Never log the API key.**
-7. **Retry policy.** On 5xx / `aiohttp.ClientError` / `asyncio.TimeoutError`: exponential backoff (1s, 2s, 4s, 8s), max 3 retries. On 401: raise immediately. On 400: raise immediately. On 429 (if it ever appears): honour `Retry-After` if present; else cap-aware exponential.
+6. **Logging.** `logging.getLogger("aranet_cloud")` for the lib; HA's `_LOGGER = logging.getLogger(__name__)` in the integration. Lib logs at DEBUG for every request (path, status, response body size) and at WARNING for retried/failed requests. **Never log the API key.**
+7. **Retry policy.** On 5xx / `aiohttp.ClientError` / `asyncio.TimeoutError`: exponential backoff (1s, 2s, 4s, …), max 3 retries by default (so 1s, 2s, 4s). On 401: raise immediately. On 400: raise immediately. On 429 (if it ever appears): honour `Retry-After` if present, **clamped** to `DEFAULT_BACKOFF_CAP`; else cap-aware exponential. Every backoff sleep — including a server-supplied `Retry-After` — is clamped to the 30 s cap so an untrusted value can't stall a polling caller.
 8. **Pagination.** `iter_measurements_history()` and `iter_telemetry_history()` are async generators yielding `Reading` objects one by one. The user never has to think about `next` tokens.
 9. **Catalog caching helper.** *(Reserved for a later version; not in v0.1.0.)* The HA integration currently re-fetches the small catalog endpoints alongside measurements on every coordinator cycle — they're cheap and the simplicity outweighs the optimisation.
 
 ### Method surface (sketch)
+
+> Early design sketch — the **authoritative** signatures are in
+> `src/aranet_cloud/client.py`. Notably, the shipped
+> `get_measurements_last`/`get_telemetry_last` return `(list[Reading], Links)`
+> tuples (not bare lists), and attachments are two methods —
+> `download_sensor_attachment` / `download_asset_attachment` — not the single
+> `download_attachment` sketched below.
 
 ```python
 class AranetCloudClient:

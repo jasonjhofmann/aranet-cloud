@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Keep the SHA-pinned GitHub Actions (publish.yml / ci.yml) current — without
+  # an updater, commit-SHA pins silently miss upstream security fixes.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+
+  # Surface Python dependency updates (e.g. when aioresponses gains aiohttp
+  # >=3.13 support, letting the dev-extra aiohttp cap be lifted).
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"

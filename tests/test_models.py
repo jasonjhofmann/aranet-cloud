@@ -16,6 +16,7 @@ from aranet_cloud.models import (
     Metric,
     Reading,
     Sensor,
+    Skill,
 )
 
 # ---------------------------------------------------------------------------
@@ -221,3 +222,46 @@ def test_metric_kind_telemetry(metrics_payload):
     assert rssi.is_telemetry
     battery = next(m for m in metrics if m.id == "62")
     assert battery.is_telemetry
+
+
+# ---------------------------------------------------------------------------
+# defensive coercion (v0.2.2 robustness hardening — from_dict must never crash
+# on malformed server data, matching the documented forward-compat contract)
+# ---------------------------------------------------------------------------
+
+
+def test_reading_non_numeric_probe_does_not_crash():
+    """A non-numeric integer field (probe) must not raise outside the
+    AranetError hierarchy — it defaults to 0 like _as_float_or_none → None."""
+    r = Reading.from_dict(
+        {"sensor": "1", "metric": "1", "unit": "1", "value": 1.0, "probe": "not-an-int"}
+    )
+    assert r.probe == 0
+
+
+def test_reading_float_shaped_int_field_coerces():
+    """A float-shaped string for an int field is coerced via float(), not
+    dropped to 0."""
+    r = Reading.from_dict({"sensor": "1", "metric": "1", "unit": "1", "probe": "2.0"})
+    assert r.probe == 2
+
+
+def test_reading_non_finite_value_is_none():
+    """inf/nan — including the string forms float() happily accepts — must not
+    masquerade as a genuine measurement."""
+    for bad in ("inf", "-inf", "nan", "Infinity", float("inf"), float("nan")):
+        r = Reading.from_dict({"sensor": "1", "metric": "3", "unit": "3", "value": bad})
+        assert r.value is None, bad
+
+
+def test_skill_malformed_probes_do_not_crash():
+    """Garbage probe indices coerce to 0 and non-mapping probe entries are
+    skipped, instead of raising a bare ValueError/TypeError."""
+    s = Skill.from_dict(
+        {
+            "metric": "1",
+            "active": True,
+            "probes": [{"probe": "bad"}, "not-a-dict", {"probe": 3}],
+        }
+    )
+    assert s.probes == (0, 3)
