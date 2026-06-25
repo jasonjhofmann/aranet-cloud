@@ -38,7 +38,7 @@ dev = [
     # stream_writer kwarg that aiohttp>=3.13 requires, so the mocked-HTTP tests
     # error out on newer aiohttp. Cap the *test* aiohttp until aioresponses
     # catches up — the runtime dependency above stays uncapped.
-    "aiohttp<3.13",
+    "aiohttp<3.15",
     "ruff>=0.5",
     "mypy>=1.10",
 ]
