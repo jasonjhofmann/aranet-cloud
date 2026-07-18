@@ -35,10 +35,10 @@ dev = [
     "pytest-asyncio>=0.23",
     "aioresponses>=0.7.6",
     # aioresponses (through 0.7.9) builds aiohttp's ClientResponse without the
-    # stream_writer kwarg that aiohttp>=3.13 requires, so the mocked-HTTP tests
-    # error out on newer aiohttp. Cap the *test* aiohttp until aioresponses
-    # catches up — the runtime dependency above stays uncapped.
-    "aiohttp<3.15",
+    # stream_writer kwarg that aiohttp>=3.13 requires. Rather than capping the
+    # test-time aiohttp — which would stop us ever testing the versions users
+    # actually install, since the runtime dependency above is uncapped — a shim
+    # in tests/conftest.py defaults that kwarg. See the docstring there.
     "ruff>=0.5",
     "mypy>=1.10",
 ]
