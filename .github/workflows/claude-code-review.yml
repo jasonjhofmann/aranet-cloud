@@ -12,6 +12,13 @@ on:
 
 jobs:
   claude-review:
+    # INTERIM: Dependabot-triggered runs read the Dependabot secret store,
+    # where CLAUDE_CODE_OAUTH_TOKEN is not set, so the action can never
+    # authenticate and hard-fails. Skip (neutral) instead of a red X until
+    # the token is added as a Dependabot secret:
+    #   gh secret set CLAUDE_CODE_OAUTH_TOKEN --app dependabot -R <repo>
+    # Then delete this if: — allowed_bots below makes the review run.
+    if: github.actor != 'dependabot[bot]'
     # Optional: Filter by PR author
     # if: |
     #   github.event.pull_request.user.login == 'external-contributor' ||
