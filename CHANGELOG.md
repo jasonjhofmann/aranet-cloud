@@ -6,6 +6,20 @@ versioning is [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Test suite green again on aiohttp >= 3.13.** aiohttp 3.13 added a required
+  keyword-only `stream_writer` argument to `ClientResponse.__init__`, which
+  `aioresponses` (through 0.7.9, current) does not pass — every mocked-HTTP
+  test raised `TypeError` and CI had been red on `main` since 2026-06-25. A
+  self-limiting shim in `tests/conftest.py` defaults the kwarg; it skips
+  patching on aiohttp < 3.13 and becomes a no-op once `aioresponses` passes
+  the argument itself. Runtime code is untouched.
+- Dropped the `aiohttp<3.15` cap from the `dev` extra. Capping test-time
+  aiohttp while the runtime dependency stays uncapped meant the suite never
+  exercised the aiohttp versions users actually install. Verified green
+  against 3.10.11 (the floor), 3.12.15, and 3.14.1.
+
 ## [0.2.2] — 2026-06-25
 
 Hardening, robustness, and tooling release from a full-repo review. No
