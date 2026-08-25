@@ -18,11 +18,12 @@ jobs:
   claude:
     # Defence in depth, and noise control -- NOT quota protection.
     #
-    # claude-code-action already refuses non-write actors on its own:
-    # src/entrypoints/prepare.ts calls checkWritePermissions() at step 3,
-    # BEFORE the trigger check and before any Claude call, and throws
-    # "Actor does not have write permissions to the repository". That check
-    # fails CLOSED -- an API error re-throws rather than allowing. So a
+    # claude-code-action already refuses non-write actors on its own. The
+    # @v1 action executes src/entrypoints/run.ts (see action.yml), which
+    # calls checkWritePermissions() at run.ts:197 and throws "Actor does not
+    # have write permissions to the repository" at :204 -- before Claude is
+    # even installed (:240), let alone invoked (:294). That check fails
+    # CLOSED: an API error re-throws rather than allowing. So a
     # stranger's "@claude" issue on this PUBLIC repo does not spend Claude
     # quota, and the mention alone was never an authorisation hole.
     #
