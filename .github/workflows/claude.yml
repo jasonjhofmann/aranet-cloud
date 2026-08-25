@@ -47,6 +47,10 @@ jobs:
          contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association))
       )
     runs-on: ubuntu-latest
+    # NOTE: this block scopes the GITHUB_TOKEN only. It is NOT a containment
+    # boundary for Claude's own credential (claude_code_oauth_token below);
+    # Claude's reach is set by its own tooling, not by these lines. Do not read
+    # "contents: read" as "Claude cannot write".
     permissions:
       contents: read
       pull-requests: read

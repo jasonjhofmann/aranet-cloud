@@ -18,23 +18,30 @@ concurrency:
 
 jobs:
   claude-review:
-    # Fork PRs get no secrets under `pull_request`, so CLAUDE_CODE_OAUTH_TOKEN
-    # would be empty and the job would fail with a confusing error on every
-    # drive-by PR to this PUBLIC repo. Skip cleanly instead, and keep review
-    # spend to branches in this repository (plus Dependabot, which is why
-    # allowed_bots is set below). Note this is failure-noise control, not a
-    # quota control: the action itself already refuses non-write actors.
-    # INTERIM: Dependabot-triggered runs read the Dependabot secret store,
-    # where CLAUDE_CODE_OAUTH_TOKEN is not set, so the action can never
-    # authenticate and hard-fails. Skip (neutral) instead of a red X until
-    # the token is added as a Dependabot secret:
-    #   gh secret set CLAUDE_CODE_OAUTH_TOKEN --app dependabot -R <repo>
-    # Then drop the second conjunct -- allowed_bots below makes it run.
+    # Two gates, both deliberate:
+    #
+    # 1. Fork PRs get no secrets under `pull_request`, so
+    #    CLAUDE_CODE_OAUTH_TOKEN would be empty and the job would fail with a
+    #    confusing error on every drive-by PR to this PUBLIC repo. Skip
+    #    cleanly instead. (Failure-noise control, not a quota control: the
+    #    action already refuses non-write actors on its own.)
+    #    Do NOT "fix" fork PRs by switching to `pull_request_target` -- that
+    #    hands the token to fork-authored content and turns this into a
+    #    prompt-injection sink.
+    #
+    # 2. Dependabot PRs are skipped on purpose. Dependabot pastes UPSTREAM
+    #    VENDORS' release notes and changelogs into the PR body, so reviewing
+    #    them feeds third-party text nobody vetted to an agent holding this
+    #    account's Claude credential. Bounded today by the read-only
+    #    permissions below, but the surface is not worth the review.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository
       && github.actor != 'dependabot[bot]'
-
     runs-on: ubuntu-latest
+    # NOTE: this block scopes the GITHUB_TOKEN only. It is NOT a containment
+    # boundary for Claude's own credential (claude_code_oauth_token below);
+    # Claude's reach is set by its own tooling, not by these lines. Do not read
+    # "contents: read" as "Claude cannot write".
     permissions:
       contents: read
       pull-requests: read
@@ -52,9 +59,6 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Without this the action hard-fails on PRs opened by bots (e.g. every
-          # Dependabot PR): "Workflow initiated by non-human actor".
-          allowed_bots: dependabot
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
