@@ -10,20 +10,29 @@ on:
     #   - "src/**/*.js"
     #   - "src/**/*.jsx"
 
+# Re-reviewing on every push to a PR is the single largest avoidable Claude
+# spend in this repo; keep only the newest run per PR.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   claude-review:
+    # Fork PRs get no secrets under `pull_request`, so CLAUDE_CODE_OAUTH_TOKEN
+    # would be empty and the job would fail with a confusing error on every
+    # drive-by PR to this PUBLIC repo. Skip cleanly instead, and keep review
+    # spend to branches in this repository (plus Dependabot, which is why
+    # allowed_bots is set below). Note this is failure-noise control, not a
+    # quota control: the action itself already refuses non-write actors.
     # INTERIM: Dependabot-triggered runs read the Dependabot secret store,
     # where CLAUDE_CODE_OAUTH_TOKEN is not set, so the action can never
     # authenticate and hard-fails. Skip (neutral) instead of a red X until
     # the token is added as a Dependabot secret:
     #   gh secret set CLAUDE_CODE_OAUTH_TOKEN --app dependabot -R <repo>
-    # Then delete this if: — allowed_bots below makes the review run.
-    if: github.actor != 'dependabot[bot]'
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
+    # Then drop the second conjunct -- allowed_bots below makes it run.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
 
     runs-on: ubuntu-latest
     permissions:
