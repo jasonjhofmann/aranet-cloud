@@ -6,6 +6,14 @@ versioning is [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-08-27
+
+### Changed
+
+- CI/workflow maintenance: actions/checkout v7 and setup-uv bumps; gate the
+  @claude workflows on the triggering actor having write access; stop
+  running the automated review on Dependabot PRs. No runtime code changes.
+
 ### Fixed
 
 - **Test suite green again on aiohttp >= 3.13.** aiohttp 3.13 added a required
@@ -214,7 +222,8 @@ pagination, full exception hierarchy.
 - Build tooling: `ruff` (lint), `mypy --strict` (types), `pytest` +
   `pytest-asyncio` (tests), `hatchling` (wheel/sdist).
 
-[Unreleased]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.1.0...v0.2.0
