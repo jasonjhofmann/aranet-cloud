@@ -51,14 +51,14 @@ asyncio.run(main())
 Output against a typical home/garden account:
 
 ```
-  A0005  Bedroom               type=S4V1
-  A0001  Kitchen                       type=S4V1
+  A0005  Bedroom                         type=S4V1
+  A0001  Kitchen                         type=S4V1
   ...
 
-  4000005           Temperature: 72.5 °F
-  4000005              Humidity: 30 %
-  4000005                    CO₂: 757 ppm
-  4000005   Atmospheric Pressure: 697.9 mmHg
+     4000005             Temperature: 72.5 °F
+     4000005                Humidity: 30.0 %
+     4000005                     CO₂: 757.0 ppm
+     4000005    Atmospheric Pressure: 697.9 mmHg
   ...
 ```
 
@@ -116,7 +116,7 @@ AranetError                       ← base; catch this for a blanket handler
 ├── AranetAuthError               ← 401 (key wrong/missing/revoked) - NOT transient
 ├── AranetValidationError         ← 400 (carries correlation_id from API)
 ├── AranetRateLimitError          ← 429 (with retry_after if present)
-├── AranetServerError             ← 5xx after exhausted retries
+├── AranetServerError             ← 5xx (500/502/503/504 after exhausted retries; other 5xx at once)
 └── AranetNotFoundError           ← 404 (rare; API often returns 200 {} instead)
 ```
 
@@ -136,7 +136,8 @@ escalations.
   server fields.
 - **Pagination hidden**: `iter_*_history()` async generators follow
   `next` tokens transparently.
-- **Retry/backoff** on 5xx, 429, and transient network failures.
+- **Retry/backoff** on 500, 502, 503, 504, 429, and transient network
+  failures. Other 5xx codes (including Cloudflare's 52x) raise immediately.
   Exponential backoff `1s, 2s, 4s, …` capped at 30 s; 3 retries by default
   (so 1s, 2s, 4s). A server `Retry-After` on 429 is honoured — also clamped
   to the 30 s cap, so a hostile/misconfigured value can't stall the caller.

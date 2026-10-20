@@ -6,6 +6,12 @@ versioning is [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- README: the retry list names the status codes actually retried (500, 502,
+  503, 504 and 429); other 5xx codes raise `AranetServerError` at once. The
+  quick-start sample output shows readings as floats with the padding the
+  example's format strings produce.
+
 ## [0.2.3] — 2026-08-27
 
 ### Changed
