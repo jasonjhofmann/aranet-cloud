@@ -171,7 +171,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-pytest               # 50 tests
+pytest               # 51 tests
 ruff check .         # lint
 mypy src             # type-check (strict)
 uv build             # build wheel + sdist (what CI publishes)

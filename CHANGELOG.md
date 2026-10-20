@@ -6,7 +6,12 @@ versioning is [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-10-20
+
 ### Fixed
+- `aranet_cloud.__version__` reported `0.2.2` in the 0.2.3 release; it
+  now matches the package version, and `tests/test_version.py` fails the
+  build if the two ever drift apart again. No runtime changes.
 - README: the retry list names the status codes actually retried (500, 502,
   503, 504 and 429); other 5xx codes raise `AranetServerError` at once. The
   quick-start sample output shows readings as floats with the padding the
@@ -228,7 +233,8 @@ pagination, full exception hierarchy.
 - Build tooling: `ruff` (lint), `mypy --strict` (types), `pytest` +
   `pytest-asyncio` (tests), `hatchling` (wheel/sdist).
 
-[Unreleased]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/jasonjhofmann/aranet-cloud/compare/v0.2.0...v0.2.1
